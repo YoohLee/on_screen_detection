@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>专业构图辅助相机</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #000;
+            color: #fff;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .container {
+            flex: 1;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #video-container {
+            flex: 1;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #000;
+        }
+
+        video {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .controls {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.8));
+            padding: 20px;
+            z-index: 10;
+        }
+
+        .mode-selector {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .mode-btn {
+            padding: 8px 12px;
+            border: 1px solid #fff;
+            border-radius: 16px;
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .mode-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .mode-btn.active {
+            background: #00bfff;
+            border-color: #00bfff;
+        }
+
+        .shutter-btn {
+            width: 60px;
+            height: 60px;
+            border: 3px solid #fff;
+            border-radius: 50%;
+            background: transparent;
+            margin: 0 auto;
+            display: block;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .shutter-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .info-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(rgba(0,0,0,0.8), transparent);
+            padding: 15px;
+            z-index: 10;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .level-meter {
+            position: absolute;
+            bottom: 120px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 160px;
+            height: 20px;
+            z-index: 10;
+        }
+
+        .level-line {
+            width: 100%;
+            height: 2px;
+            background: #fff;
+            position: relative;
+        }
+
+        .level-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #00ff00;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        @media (max-width: 768px) {
+            .mode-btn {
+                padding: 6px 10px;
+                font-size: 12px;
+            }
+
+            .shutter-btn {
+                width: 50px;
+                height: 50px;
+            }
+
+            .info-bar {
+                font-size: 10px;
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="video-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas"></canvas>
+        </div>
+        
+        <div class="info-bar">
+            专业构图辅助相机 - 选择构图模式
+        </div>
+        
+        <div class="level-meter">
+            <div class="level-line">
+                <div class="level-dot"></div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <div class="mode-selector">
+                <button class="mode-btn" data-mode="0">关闭</button>
+                <button class="mode-btn" data-mode="1">九宫格</button>
+                <button class="mode-btn" data-mode="2">中心</button>
+                <button class="mode-btn" data-mode="3">S型</button>
+                <button class="mode-btn" data-mode="4">对称</button>
+                <button class="mode-btn" data-mode="5">对角线</button>
+                <button class="mode-btn" data-mode="6">三角形</button>
+                <button class="mode-btn" data-mode="7">框架</button>
+                <button class="mode-btn" data-mode="8">引导线</button>
+                <button class="mode-btn" data-mode="9">水平线</button>
+                <button class="mode-btn" data-mode="10">垂直线</button>
+                <button class="mode-btn" data-mode="11">圆形</button>
+                <button class="mode-btn" data-mode="12">留白</button>
+                <button class="mode-btn" data-mode="13">透视</button>
+            </div>
+            <button class="shutter-btn" id="shutter"></button>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const modeButtons = document.querySelectorAll('.mode-btn');
+        const shutterBtn = document.getElementById('shutter');
+        let currentMode = 0;
+        let saveCount = 0;
+
+        // 初始化摄像头
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    adjustCanvasSize();
+                    drawCompositionLines();
+                };
+            } catch (err) {
+                console.error('无法访问摄像头:', err);
+                alert('无法访问摄像头，请检查权限设置');
+            }
+        }
+
+        // 调整Canvas大小
+        function adjustCanvasSize() {
+            const videoContainer = document.getElementById('video-container');
+            canvas.width = videoContainer.clientWidth;
+            canvas.height = videoContainer.clientHeight;
+        }
+
+        // 绘制构图线
+        function drawCompositionLines() {
+            if (!video.videoWidth) return;
+
+            const w = canvas.width;
+            const h = canvas.height;
+
+            // 清空画布
+            ctx.clearRect(0, 0, w, h);
+
+            // 根据当前模式绘制不同的构图线
+            switch (currentMode) {
+                case 1: // 九宫格 / 黄金分割
+                    ctx.strokeStyle = 'rgba(0, 255, 0, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(w/3, 0);
+                    ctx.lineTo(w/3, h);
+                    ctx.moveTo(2*w/3, 0);
+                    ctx.lineTo(2*w/3, h);
+                    ctx.moveTo(0, h/3);
+                    ctx.lineTo(w, h/3);
+                    ctx.moveTo(0, 2*h/3);
+                    ctx.lineTo(w, 2*h/3);
+                    ctx.stroke();
+                    break;
+
+                case 2: // 中心构图
+                    ctx.strokeStyle = 'rgba(0, 255, 255, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(w/2, 0);
+                    ctx.lineTo(w/2, h);
+                    ctx.moveTo(0, h/2);
+                    ctx.lineTo(w, h/2);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.arc(w/2, h/2, 30, 0, 2 * Math.PI);
+                    ctx.stroke();
+                    break;
+
+                case 3: // S型构图
+                    ctx.strokeStyle = 'rgba(255, 0, 255, 0.7)';
+                    ctx.lineWidth = 1;
+                    for (let y = 0; y < h; y += 2) {
+                        const x = w/2 + (w/4) * Math.sin(y * 0.03);
+                        ctx.beginPath();
+                        ctx.arc(x, y, 1, 0, 2 * Math.PI);
+                        ctx.fill();
+                    }
+                    break;
+
+                case 4: // 左右对称
+                    ctx.strokeStyle = 'rgba(255, 255, 0, 0.7)';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(w/2, 0);
+                    ctx.lineTo(w/2, h);
+                    ctx.stroke();
+                    break;
+
+                case 5: // 对角线构图
+                    ctx.strokeStyle = 'rgba(255, 100, 100, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(w, h);
+                    ctx.moveTo(w, 0);
+                    ctx.lineTo(0, h);
+                    ctx.stroke();
+                    break;
+
+                case 6: // 三角形构图
+                    ctx.strokeStyle = 'rgba(0, 128, 255, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(w/2, 60);
+                    ctx.lineTo(60, h-60);
+                    ctx.lineTo(w-60, h-60);
+                    ctx.closePath();
+                    ctx.stroke();
+                    break;
+
+                case 7: // 框架式构图
+                    ctx.strokeStyle = 'rgba(100, 255, 255, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(w/5, h/5, w*3/5, h*3/5);
+                    break;
+
+                case 8: // 引导线 / 汇聚线构图
+                    ctx.strokeStyle = 'rgba(100, 200, 100, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(w/4, 0);
+                    ctx.lineTo(w/2, h);
+                    ctx.moveTo(w*3/4, 0);
+                    ctx.lineTo(w/2, h);
+                    ctx.stroke();
+                    break;
+
+                case 9: // 水平线构图（风景专用）
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(0, h/2);
+                    ctx.lineTo(w, h/2);
+                    ctx.stroke();
+                    break;
+
+                case 10: // 垂直线构图（建筑/人像）
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(w/2, 0);
+                    ctx.lineTo(w/2, h);
+                    ctx.stroke();
+                    break;
+
+                case 11: // 圆形构图
+                    ctx.strokeStyle = 'rgba(255, 180, 0, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.arc(w/2, h/2, Math.min(w, h)/3, 0, 2 * Math.PI);
+                    ctx.stroke();
+                    break;
+
+                case 12: // 留白构图（极简右侧留白）
+                    ctx.strokeStyle = 'rgba(200, 200, 200, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(w/3, 0);
+                    ctx.lineTo(w/3, h);
+                    ctx.stroke();
+                    break;
+
+                case 13: // 透视构图（强空间感）
+                    ctx.strokeStyle = 'rgba(200, 0, 200, 0.7)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(100, 100, w-200, h-200);
+                    ctx.beginPath();
+                    ctx.moveTo(w/2, 100);
+                    ctx.lineTo(w/4, h);
+                    ctx.moveTo(w/2, 100);
+                    ctx.lineTo(w*3/4, h);
+                    ctx.stroke();
+                    break;
+            }
+
+            // 绘制水平仪
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(w/2 - 80, h - 60);
+            ctx.lineTo(w/2 + 80, h - 60);
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(0, 255, 0, 0.7)';
+            ctx.beginPath();
+            ctx.arc(w/2, h - 60, 4, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+
+        // 拍照保存
+        function takePhoto() {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = video.videoWidth;
+            tempCanvas.height = video.videoHeight;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(video, 0, 0);
+            
+            // 绘制构图线
+            tempCtx.save();
+            switch (currentMode) {
+                case 1: // 九宫格 / 黄金分割
+                    tempCtx.strokeStyle = 'rgba(0, 255, 0, 0.7)';
+                    tempCtx.lineWidth = 1;
+                    tempCtx.beginPath();
+                    tempCtx.moveTo(tempCanvas.width/3, 0);
+                    tempCtx.lineTo(tempCanvas.width/3, tempCanvas.height);
+                    tempCtx.moveTo(2*tempCanvas.width/3, 0);
+                    tempCtx.lineTo(2*tempCanvas.width/3, tempCanvas.height);
+                    tempCtx.moveTo(0, tempCanvas.height/3);
+                    tempCtx.lineTo(tempCanvas.width, tempCanvas.height/3);
+                    tempCtx.moveTo(0, 2*tempCanvas.height/3);
+                    tempCtx.lineTo(tempCanvas.width, 2*tempCanvas.height/3);
+                    tempCtx.stroke();
+                    break;
+                // 其他模式的绘制代码...
+            }
+            tempCtx.restore();
+
+            // 保存图片
+            saveCount++;
+            const link = document.createElement('a');
+            link.download = `photo_${saveCount}.jpg`;
+            link.href = tempCanvas.toDataURL('image/jpeg');
+            link.click();
+        }
+
+        // 事件监听
+        modeButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                // 移除所有按钮的active类
+                modeButtons.forEach(btn => btn.classList.remove('active'));
+                // 添加当前按钮的active类
+                button.classList.add('active');
+                // 更新当前模式
+                currentMode = parseInt(button.dataset.mode);
+                drawCompositionLines();
+            });
+        });
+
+        shutterBtn.addEventListener('click', takePhoto);
+
+        // 窗口大小变化时调整Canvas
+        window.addEventListener('resize', adjustCanvasSize);
+
+        // 视频播放时持续绘制构图线
+        video.addEventListener('play', () => {
+            function draw() {
+                if (!video.paused && !video.ended) {
+                    drawCompositionLines();
+                    requestAnimationFrame(draw);
+                }
+            }
+            draw();
+        });
+
+        // 初始化
+        initCamera();
+    </script>
+</body>
+</html>
